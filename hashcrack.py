@@ -13,11 +13,12 @@ parser.add_argument('-n', '--number', type=int, default=multiprocessing.cpu_coun
 parser.add_argument('-c', '--charset', default='lower', help='upper[A-Z], lower[a-z], digits[0-9], extended[A-za-z0-9]')
 parser.add_argument('-l', '--length', nargs='*', type=int, default=[5, 5], help='plain text length range')
 parser.add_argument('-a', '--alg', help='hash function algorithm')
-parser.add_argument('-t', '--target', help='target hash', required=True)
+parser.add_argument('-t', '--target', help='target hash', required=False)
 
 args = parser.parse_args()
 if len(args.length) == 1:
     args.length = [args.length[0], args.length[0]]
+combinations = 0
 
 
 # Проверка текста на совпадение исходному тексту
@@ -26,13 +27,14 @@ def check_hash(alg, target_hash, suspect_str):
 
 
 def result_check(result, pool):
+    global combinations
+    combinations += result[2]
     if result[0] is not None:
-        print(f"\033[92m[!]\033[0m Plain text: {result[0]}\n\033[96m[~]\033[0m Combinations: {result[2]}")
+        print(f"\033[92m[!]\033[0m Plain text: {result[0]}\n\033[96m[~]\033[0m Combinations: {combinations}")
         pool.terminate()
 
 
 # Генерация строк перебора(запускается в отдельном процессе)
-# Поддерживает разделение задач
 def generator(charset, first_char, chunk_len, required_len, alg, target):
     """
     :param target: Хэш
@@ -49,27 +51,27 @@ def generator(charset, first_char, chunk_len, required_len, alg, target):
             suspect = ''.join(comb)
             chunk_completed_count += 1
             if check_hash(alg, target, suspect):
-                return (suspect, target, chunk_completed_count)
+                return suspect, target, chunk_completed_count
     else:
         for comb in product(charset, repeat=chunk_len):
             suspect = first_char + ''.join(comb)
             chunk_completed_count += 1
             if check_hash(alg, target, suspect):
-                return (suspect, target, chunk_completed_count)
-    return (None, target, chunk_completed_count)
+                return suspect, target, chunk_completed_count
+    return None, target, chunk_completed_count
 
 
-def bruteforce(n, charset, lenrange, alg, target, chunk_size=1000000):
+def bruteforce(num_process, charset, len_ranges, alg, target, chunk_size=1000000):
     """
-    :param n: Количество используемых рабочих процессов
+    :param num_process: Количество используемых рабочих процессов
     :param charset: Алфавит
-    :param lenrange: Диапазоны длины исходной фразы
+    :param len_ranges: Диапазоны длины исходной фразы
     :param alg: Алгоритм хэширования
     :param target: Хэш
     :param chunk_size: Размер чанка
     :return:
     """
-    pool = multiprocessing.Pool(n)
+    pool = multiprocessing.Pool(num_process)
     charset_len = len(charset)
     # Количество символов, при которых перебор
     # будет произведен без разделения вычислений
@@ -80,12 +82,12 @@ def bruteforce(n, charset, lenrange, alg, target, chunk_size=1000000):
 
     ext_callback = lambda result: result_check(result, pool)
 
-    if chunk_len >= lenrange[0]:
-        for length in range(lenrange[0], chunk_len + 1):
+    if chunk_len >= len_ranges[0]:
+        for length in range(len_ranges[0], chunk_len + 1):
             pool.apply_async(generator, args=(charset, '', chunk_len, length, alg, target),
                              callback=ext_callback)
 
-    for length in range(chunk_len + 1, lenrange[1] + 1):
+    for length in range(len_ranges[0], len_ranges[1] + 1):
         for comb in product(charset, repeat=length - chunk_len):
             first_char = ''.join(comb)
             pool.apply_async(generator, args=(charset, first_char, chunk_len, length, alg, target),
@@ -99,11 +101,13 @@ if __name__ == '__main__':
     from sys import platform
     import time
 
+    # Поддержка цветного вывода в консаоль для Windows
     if 'win' in platform:
         import ctypes
 
         kernel32 = ctypes.windll.kernel32
         kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+
     charset = {'lower': 'abcdefghijklmnopqrstuvwxyz',
                'digits': '0123456789',
                'upper': 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
@@ -119,11 +123,16 @@ if __name__ == '__main__':
  ▒ ░▒░ ░  ▒   ▒▒ ░░ ░▒  ░ ░ ▒ ░▒░ ░  ░  ▒     ░▒ ░ ▒░  ▒   ▒▒ ░  ░  ▒   ░ ░▒ ▒░
  ░  ░░ ░  ░   ▒   ░  ░  ░   ░  ░░ ░░          ░░   ░   ░   ▒   ░        ░ ░░ ░ 
  ░  ░  ░      ░  ░      ░   ░  ░  ░░ ░         ░           ░  ░░ ░      ░  ░   
-                                   ░                           ░               \033[31m0.1\033[0m
+                                   ░                           ░                \033[0mv\033[31m0.2\033[0m
 ''')
     print(f"[+] Process number: \033[32m{args.number}\033[0m")
     print(f"\033[93m[+]\033[0m Target: {args.target}")
     start = time.time()
-    bruteforce(n=args.number, charset=charset[str(args.charset)], lenrange=args.length,
+    bruteforce(num_process=args.number, charset=charset[str(args.charset)], len_ranges=args.length,
                alg=args.alg, target=args.target)
-    print(f"\033[36m[*]\033[0m Elapsed time: {time.time() - start} sec")
+    # bruteforce(6, charset, (5, 5), 'sha256', '1115dd800feaacefdf481f1f9070374a2a81e27880f187396db67958b207cbad')
+    end = time.time() - start
+    c = round(combinations/end, 2)
+    print(f"\033[34m[*]\033[0m Speed: {c} words/sec")
+    print(f"\033[36m[*]\033[0m Elapsed time: {end} sec")
+
