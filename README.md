@@ -1,5 +1,6 @@
 ## HashCrack
 Hash Bruteforse tool
+![alt text](https://github.com/levjkeR/hashcrack/blob/main/example.png)
 ### Build with
 * Multiprocessing
 * Hashlib
