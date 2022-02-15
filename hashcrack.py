@@ -11,7 +11,7 @@ parser = argparse.ArgumentParser(description="HashCrack Multiprocessing Tool",
 parser.add_argument('-n', '--number', type=int, default=multiprocessing.cpu_count() // 2,
                     help='number of process')
 parser.add_argument('-c', '--charset', default='lower', help='upper[A-Z], lower[a-z], digits[0-9], extended[A-za-z0-9]')
-parser.add_argument('-l', '--length', nargs='*', type=int, default=[5, 5], help='plain text length range')
+parser.add_argument('-l', '--length', nargs='*', type=int, default=[1, 64], help='plain text length range')
 parser.add_argument('-a', '--alg', help='hash function algorithm')
 parser.add_argument('-t', '--target', help='target hash', required=False)
 
@@ -31,7 +31,7 @@ def result_check(result, pool):
     combinations += result[2]
     if result[0] is not None:
         print(f"\033[92m[!]\033[0m Plain text: {result[0]}\n\033[96m[~]\033[0m Combinations: {combinations}")
-        pool.terminate()
+        pool.close()
 
 
 # Генерация строк перебора(запускается в отдельном процессе)
@@ -84,14 +84,28 @@ def bruteforce(num_process, charset, len_ranges, alg, target, chunk_size=1000000
 
     if chunk_len >= len_ranges[0]:
         for length in range(len_ranges[0], chunk_len + 1):
-            pool.apply_async(generator, args=(charset, '', chunk_len, length, alg, target),
-                             callback=ext_callback)
+            if pool.__dict__['_state'] == 'RUN':
+                try:
+                    pool.apply_async(generator, args=(charset, '', chunk_len, length, alg, target),
+                                 callback=ext_callback)
+                except ValueError as ex:
+                    print(ex)
+                    time.sleep(0.01)
+            else:
+                return
 
-    for length in range(len_ranges[0], len_ranges[1] + 1):
+    for length in range(chunk_len + 1, len_ranges[1] + 1):
         for comb in product(charset, repeat=length - chunk_len):
             first_char = ''.join(comb)
-            pool.apply_async(generator, args=(charset, first_char, chunk_len, length, alg, target),
-                             callback=ext_callback)
+            if pool.__dict__['_state'] == 'RUN':
+                try:
+                    pool.apply_async(generator, args=(charset, first_char, chunk_len, length, alg, target),
+                                 callback=ext_callback)
+                except ValueError as ex:
+                    print(ex)
+                    time.sleep(0.01)
+            else:
+                return
 
     pool.close()
     pool.join()
@@ -132,7 +146,6 @@ if __name__ == '__main__':
                alg=args.alg, target=args.target)
     # bruteforce(6, charset, (5, 5), 'sha256', '1115dd800feaacefdf481f1f9070374a2a81e27880f187396db67958b207cbad')
     end = time.time() - start
-    c = round(combinations/end, 2)
+    c = round(combinations / end, 2)
     print(f"\033[34m[*]\033[0m Speed: {c} words/sec")
     print(f"\033[36m[*]\033[0m Elapsed time: {end} sec")
-
